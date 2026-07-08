@@ -30,6 +30,17 @@ jobs:
       - name: Install Android platform 36
         run: yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null 2>&1 || true
 
+      # 诊断: 确认 CI 能访问 Maven Central 及环境变量(排查 KSP 解析问题)
+      - name: Diagnose repository access
+        run: |
+          echo "=== 环境变量 ==="
+          echo "CI=${CI:-<未设置>}"
+          echo "GITHUB_ACTIONS=${GITHUB_ACTIONS:-<未设置>}"
+          echo "=== Maven Central KSP pom 可达性 ==="
+          curl -sI "https://repo1.maven.org/maven2/com/google/devtools/ksp/com.google.devtools.ksp.gradle.plugin/2.3.8/com.google.devtools.ksp.gradle.plugin-2.3.8.pom" | head -1 || echo "curl 失败"
+          echo "=== settings.gradle.kts 仓库配置 ==="
+          cat settings.gradle.kts
+
       - name: Decode keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/keystore.jks
 
