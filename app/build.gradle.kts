@@ -36,6 +36,22 @@ android {
     }
 
 
+    // 签名配置：仅当 CI 提供环境变量时启用(本地 AS 构建不受影响,仍用 Generate Signed APK)
+    val keystorePath = System.getenv("KEYSTORE_PATH")
+    val keystorePwd = System.getenv("KEYSTORE_PASSWORD")
+    val keyAliasEnv = System.getenv("KEY_ALIAS")
+    val keyPwd = System.getenv("KEY_PASSWORD")
+    signingConfigs {
+        create("release") {
+            if (keystorePath != null) {
+                storeFile = file(keystorePath)
+                storePassword = keystorePwd ?: ""
+                keyAlias = keyAliasEnv ?: ""
+                keyPassword = keyPwd ?: ""
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true  // 启用R8代码压缩和优化
@@ -52,6 +68,9 @@ android {
             )
             buildConfigField("boolean", "ENABLE_DEV_TOOLS_OPTION_IN_UI", "false")
             buildConfigField("boolean", "ENABLE_ADDRESS_BAR_TOGGLE_BUTTON", "true")
+            if (keystorePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             buildConfigField("boolean", "ENABLE_DEV_TOOLS_OPTION_IN_UI", "true")
