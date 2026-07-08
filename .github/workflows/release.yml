@@ -26,9 +26,9 @@ jobs:
         with:
           accept-android-sdk-licenses: true
 
-      # compileSdk=37 可能不在默认 SDK 里，显式安装；装不上也无妨先继续
-      - name: Install Android platform 37
-        run: yes | sdkmanager "platforms;android-37" "build-tools;37.0.0" >/dev/null 2>&1 || true
+      # compileSdk=36 是稳定版，显式安装以确保可用
+      - name: Install Android platform 36
+        run: yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null 2>&1 || true
 
       - name: Decode keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/keystore.jks
