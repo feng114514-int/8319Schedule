@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "com.example.a8319schedule"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.example.a8319schedule"

@@ -26,9 +26,11 @@ jobs:
         with:
           accept-android-sdk-licenses: true
 
-      # compileSdk=36 是稳定版，显式安装以确保可用
-      - name: Install Android platform 36
-        run: yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null 2>&1 || true
+      # compileSdk=37 (Miuix 0.9.0 要求), 显式安装(含预览通道以防37为预览版)
+      - name: Install Android platform 37
+        run: |
+          yes | sdkmanager --channel=0,1,2,3 "platforms;android-37" "build-tools;37.0.0" || echo "警告: android-37 安装失败"
+          sdkmanager --list_installed 2>/dev/null | grep -i "android-37" || echo "(未检测到 android-37)"
 
       # 诊断: 确认 CI 能访问 Maven Central 及环境变量(排查 KSP 解析问题)
       - name: Diagnose repository access
