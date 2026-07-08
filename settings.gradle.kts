@@ -1,8 +1,10 @@
 pluginManagement {
     repositories {
-        // 阿里云镜像优先
-        maven { url = uri("https://maven.aliyun.com/repository/google/") }
-        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin/") }
+        // 阿里云镜像(仅本地加速; CI 上用官方仓库, 避免镜像同步不完整导致解析失败)
+        if (System.getenv("CI") == null) {
+            maven { url = uri("https://maven.aliyun.com/repository/google/") }
+            maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin/") }
+        }
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
@@ -17,10 +19,12 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        // 阿里云镜像优先
-        maven { url = uri("https://maven.aliyun.com/repository/google/") }
-        maven { url = uri("https://maven.aliyun.com/repository/public/") }
-        maven { url = uri("https://maven.aliyun.com/repository/central/") }
+        // 阿里云镜像(仅本地加速; CI 上用官方仓库)
+        if (System.getenv("CI") == null) {
+            maven { url = uri("https://maven.aliyun.com/repository/google/") }
+            maven { url = uri("https://maven.aliyun.com/repository/public/") }
+            maven { url = uri("https://maven.aliyun.com/repository/central/") }
+        }
         google()
         mavenCentral()
         // Miuix 组件库仓库
