@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 小部件点击进入动画 - 平滑缩放+淡入 -->
+<set xmlns:android="http://schemas.android.com/apk/res/android">
+    
+    <!-- 缩放动画 - 从小变大 -->
+    <scale
+        android:duration="300"
+        android:fromXScale="0.3"
+        android:fromYScale="0.3"
+        android:toXScale="1.0"
+        android:toYScale="1.0"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:interpolator="@android:anim/decelerate_interpolator" />
+    
+    <!-- 透明度动画 - 从透明到不透明 -->
+    <alpha
+        android:duration="300"
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0"
+        android:interpolator="@android:anim/decelerate_interpolator" />
+</set>

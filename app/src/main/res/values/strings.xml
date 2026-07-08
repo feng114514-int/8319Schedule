@@ -1,0 +1,48 @@
+<resources>
+    <string name="app_name">江理课程表</string>
+    <string name="widget_name">今日课表</string>
+    <string name="widget_description">显示今日课程信息</string>
+    
+    <!-- WebView相关字符串 -->
+    <string name="title_enter_url">输入网址</string>
+    <string name="title_loading">加载中...</string>
+    <string name="toast_import_script_finished">导入完成</string>
+    <string name="toast_switched_to_desktop">已切换到桌面模式</string>
+    <string name="toast_switched_to_phone">已切换到移动模式</string>
+    <string name="toast_url_empty_enter_first">请先输入网址</string>
+    <string name="toast_devtools_enabled_format">调试工具已%s</string>
+    <string name="status_enabled">启用</string>
+    <string name="status_disabled">禁用</string>
+    <string name="toast_no_script_manual_import">未找到手动导入脚本</string>
+    <string name="toast_executing_import_script">正在执行导入脚本...</string>
+    <string name="toast_no_import_script">未找到导入脚本</string>
+    <string name="toast_import_script_not_found">未找到导入脚本: %s</string>
+    <string name="toast_load_import_script_failed">加载导入脚本失败: %s</string>
+    <string name="toast_web_load_error_format">网页加载错误: %s</string>
+    
+    <!-- 通用操作字符串 -->
+    <string name="action_refresh">刷新</string>
+    <string name="action_switch_to_phone_mode">切换到移动模式</string>
+    <string name="action_switch_to_desktop_mode">切换到桌面模式</string>
+    <string name="action_continue_browsing">继续浏览</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_confirm">确定</string>
+    
+    <!-- 对话框相关字符串 -->
+    <string name="dialog_ssl_error_title">安全警告</string>
+    <string name="dialog_ssl_error_message">此网站的安全证书存在问题。继续浏览可能会导致您的数据泄露。</string>
+    
+    <!-- 无障碍相关字符串 -->
+    <string name="a11y_cancel_editing">取消编辑</string>
+    <string name="a11y_back">返回</string>
+    <string name="a11y_load">加载</string>
+    <string name="a11y_enter_url">输入网址</string>
+    <string name="a11y_more_options">更多选项</string>
+    <string name="a11y_refresh">刷新</string>
+    <string name="a11y_devtools">调试工具</string>
+    
+    <!-- 占位符相关字符串 -->
+    <string name="placeholder_enter_url_full">输入完整网址，如 https://example.com</string>
+    <string name="text_import_guide">登录教务系统后，选择要导入的课表</string>
+    <string name="item_devtools_debug">启用调试工具</string>
+</resources>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 原生R角背景，与成功案例/widget_bg_rounded.xml 完全一致 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_bg" />
+    <!-- R角半径：当前18dp，可根据需要修改 -->
+    <corners android:radius="18dp" />
+</shape>

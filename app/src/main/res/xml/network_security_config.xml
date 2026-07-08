@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 默认配置：禁止明文流量，仅信任系统CA证书 -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    
+    <!-- 针对教务系统域名：允许明文流量 + 信任用户证书（学校教务系统可能使用自签名证书） -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">jxust.edu.cn</domain>
+        <domain includeSubdomains="true">jvpn.jxust.edu.cn</domain>
+        <domain includeSubdomains="true">ehall.jxust.edu.cn</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

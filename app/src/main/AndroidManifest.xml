@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 网络权限（课表导入需要） -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    
+    <!-- 精确闹钟权限（用于小部件实时更新和课程提醒） -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    
+    <!-- 通知权限（Android 13+） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    
+    <!-- 请求忽略电池优化 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    
+    <!-- 开机自启（用于重新注册课程提醒闹钟） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    
+    <!-- 相机和存储权限（AI图片导入） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme._8319Schedule"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme._8319Schedule"
+            android:windowSoftInputMode="adjustResize"
+            android:hardwareAccelerated="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 4×2中部件（主小部件，保持原有类名以兼容已安装的桌面小部件） -->
+        <receiver 
+            android:name=".ScheduleWidgetProvider"
+            android:exported="false"
+            android:label="@string/widget_name"
+            android:process=":widgetProvider">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.appwidget.action.APPWIDGET_ENABLED" />
+                <action android:name="android.appwidget.action.APPWIDGET_DISABLED" />
+                <!-- 小米曝光刷新（被动兼容：保留intent-filter，万一小米系统仍发送此广播可响应） -->
+                <action android:name="miui.widget.action.MIUI_WIDGET_REFRESH" />
+            </intent-filter>
+            <meta-data 
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info" />
+            <!-- 构建变体控制：standard变体不声明miuiWidget，miui变体声明 -->
+            <meta-data
+                android:name="miuiWidget"
+                android:value="${miuiWidgetEnabled}" />
+        </receiver>
+
+        <!-- 2×2小部件 -->
+        <receiver 
+            android:name=".ScheduleWidgetProviderSmall"
+            android:exported="false"
+            android:label="@string/widget_name"
+            android:process=":widgetProvider">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.appwidget.action.APPWIDGET_ENABLED" />
+                <action android:name="android.appwidget.action.APPWIDGET_DISABLED" />
+                <!-- 小米曝光刷新（被动兼容） -->
+                <action android:name="miui.widget.action.MIUI_WIDGET_REFRESH" />
+            </intent-filter>
+            <meta-data 
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info_small" />
+            <meta-data
+                android:name="miuiWidget"
+                android:value="${miuiWidgetEnabled}" />
+        </receiver>
+
+        <!-- 4×4大部件 -->
+        <receiver 
+            android:name=".ScheduleWidgetProviderLarge"
+            android:exported="false"
+            android:label="@string/widget_name"
+            android:process=":widgetProvider">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.appwidget.action.APPWIDGET_ENABLED" />
+                <action android:name="android.appwidget.action.APPWIDGET_DISABLED" />
+                <!-- 小米曝光刷新（被动兼容） -->
+                <action android:name="miui.widget.action.MIUI_WIDGET_REFRESH" />
+            </intent-filter>
+            <meta-data 
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info_large" />
+            <meta-data
+                android:name="miuiWidget"
+                android:value="${miuiWidgetEnabled}" />
+        </receiver>
+
+        <!-- Widget刷新服务 -->
+        <service
+            android:name=".WidgetRefreshService"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":widgetProvider" />
+            
+        <!-- 小部件更新广播接收器 -->
+        <receiver
+            android:name=".SimpleWidgetUpdater$WidgetUpdateReceiver"
+            android:exported="false"
+            android:process=":widgetProvider">
+            <intent-filter>
+                <action android:name="com.example.a8319schedule.UPDATE_WIDGET" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 课程提醒闹钟广播接收器 -->
+        <receiver
+            android:name=".CourseAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.example.a8319schedule.COURSE_REMINDER" />
+                <action android:name="com.example.a8319schedule.DAILY_SUMMARY" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 用于共享 ICS 文件给系统日历应用 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+
+</manifest>

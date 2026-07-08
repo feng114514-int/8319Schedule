@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 4×4大部件配置 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="300dp"
+    android:minHeight="250dp"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/widget_loading_large"
+    android:previewImage="@mipmap/ic_launcher"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen|keyguard"
+    android:label="@string/widget_name"
+    android:description="@string/widget_description"
+    android:targetCellWidth="4"
+    android:targetCellHeight="4" />
