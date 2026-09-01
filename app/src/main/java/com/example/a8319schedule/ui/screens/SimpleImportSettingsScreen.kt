@@ -28,6 +28,7 @@ import com.example.a8319schedule.data.Course
 import com.example.a8319schedule.data.OtherInfoImporter
 import com.example.a8319schedule.data.ScheduleInfo
 import com.example.a8319schedule.data.TimetableParser
+import com.example.a8319schedule.data.WeekCalendarParser
 import com.example.a8319schedule.data.ScheduleSettingsManager
 import com.example.a8319schedule.viewmodel.CourseViewModel
 import com.example.a8319schedule.viewmodel.ScheduleViewModel
@@ -51,6 +52,7 @@ fun SimpleImportSettingsScreen(
     planHtml: String? = null,
     allPlanHtml: String? = null,
     scoreHtml: String? = null,
+    weekHtml: String? = null,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -71,9 +73,12 @@ fun SimpleImportSettingsScreen(
     val currentMonth = calendar.get(Calendar.MONTH)
     val currentDay = calendar.get(Calendar.DAY_OF_MONTH)
     
-    var startYear by remember { mutableStateOf(currentYear) }
-    var startMonth by remember { mutableStateOf(currentMonth) }
-    var startDay by remember { mutableStateOf(currentDay) }
+    // 教学周历自动识别开学日期：识别失败时回退为今天，用户可随时点击日期手动修改
+    val detectedStart = remember(weekHtml) { WeekCalendarParser.parse(weekHtml).firstDay }
+
+    var startYear by remember(weekHtml) { mutableStateOf(detectedStart?.year ?: currentYear) }
+    var startMonth by remember(weekHtml) { mutableStateOf((detectedStart?.monthValue ?: currentMonth + 1) - 1) }
+    var startDay by remember(weekHtml) { mutableStateOf(detectedStart?.dayOfMonth ?: currentDay) }
     var showDatePicker by remember { mutableStateOf(false) }
     
     // HyperOS 风格配色
@@ -380,6 +385,14 @@ fun SimpleImportSettingsScreen(
                                     fontWeight = FontWeight.Medium
                                 )
                             }
+                        }
+                        if (detectedStart != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "已根据教学周历自动识别开学日期，点击上方日期可修改",
+                                fontSize = 12.sp,
+                                color = hyperPrimary
+                            )
                         }
                     }
                 }

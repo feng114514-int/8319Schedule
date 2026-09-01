@@ -191,6 +191,20 @@ fun WebViewImportScreen(
                                 }
                             };
 
+                            // 抓取教学周历：GET 无参数，提取 #kbtable 表格（用于自动识别开学日期）
+                            window.fetchWeekCalendarHtml = async function() {
+                                try {
+                                    var resp = await fetch('/jsxsd/jxzl/jxzl_query', { method: 'GET' });
+                                    var html = await resp.text();
+                                    var div = document.createElement('div');
+                                    div.innerHTML = html;
+                                    var table = div.querySelector('#kbtable');
+                                    return { weekHtml: table ? table.outerHTML : '', error: null };
+                                } catch (e) {
+                                    return { weekHtml: '', error: e.message };
+                                }
+                            };
+
                             // 单独抓取某类信息（非课表模式用），通过 onOtherInfoParsed 回传
                             window.fetchAndSendOtherInfo = async function(mode) {
                                 window.bridgeCallCount++;
@@ -234,11 +248,12 @@ fun WebViewImportScreen(
                                     window.isProcessing = true;
                                     try {
                                         if (coursesJson && coursesJson.trim() !== '') {
-                                            // 课表解析成功：顺带抓取考试安排、培养方案和成绩并合并
+                                            // 课表解析成功：顺带抓取考试安排、培养方案、成绩和教学周历并合并
                                             var examInfo = await window.fetchExamHtml();
                                             var planInfo = await window.fetchTrainingPlanHtml();
                                             var allPlanInfo = await window.fetchAllPlansHtml();
                                             var scoreInfo = await window.fetchScoreHtml();
+                                            var weekInfo = await window.fetchWeekCalendarHtml();
                                             try {
                                                 var obj = JSON.parse(coursesJson);
                                                 obj.examHtml = examInfo.examHtml;
@@ -250,6 +265,8 @@ fun WebViewImportScreen(
                                                 obj.allPlanError = allPlanInfo.error;
                                                 obj.scoreHtml = scoreInfo.scoreHtml;
                                                 obj.scoreError = scoreInfo.error;
+                                                obj.weekHtml = weekInfo.weekHtml;
+                                                obj.weekError = weekInfo.error;
                                                 window.AndroidBridge.onScheduleParsed(JSON.stringify(obj), null);
                                             } catch (e) {
                                                 window.AndroidBridge.onScheduleParsed(coursesJson, null);

@@ -39,6 +39,16 @@ object TimetableParser {
                     message = "未找到课表表格，请确保页面包含完整的课表信息"
                 )
             }
+
+            // 防御：教学周历页与课表页的表格 ID 同为 kbtable，但周历无课程内容 div；
+            // 避免误将周历 HTML 当课表文件导入后解析出空课表
+            if (kbTable.selectFirst("div.kbcontent, div.kbcontent1") == null) {
+                return ParseResult(
+                    courses = emptyList(),
+                    success = false,
+                    message = "未识别为课表页面（所选文件可能是教学周历），请选择\"学期理论课表\"页面导出的 HTML"
+                )
+            }
             
             val semesterInfo = extractSemesterInfo(doc)
             val courses = parseCoursesFromTable(kbTable)

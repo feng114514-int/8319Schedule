@@ -84,6 +84,8 @@ fun ImportScreen(
     var pendingAllPlanHtml by remember { mutableStateOf<String?>(null) }
     // 导入课表时一并抓取的成绩查询 HTML，待确认导入时入库
     var pendingScoreHtml by remember { mutableStateOf<String?>(null) }
+    // 导入课表时一并抓取的教学周历 HTML，用于自动识别开学日期
+    var pendingWeekHtml by remember { mutableStateOf<String?>(null) }
     
     val schedules by scheduleViewModel.schedules.collectAsState()
     val activeSchedule by scheduleViewModel.activeSchedule.collectAsState()
@@ -161,6 +163,9 @@ fun ImportScreen(
                         pendingAllPlanHtml = if (allPlanHtml.isNotEmpty()) allPlanHtml else null
                         val scoreHtml = jsonObj?.optString("scoreHtml", "") ?: ""
                         pendingScoreHtml = if (scoreHtml.isNotEmpty()) scoreHtml else null
+                        // 教学周历（用于自动识别开学日期）
+                        val weekHtml = jsonObj?.optString("weekHtml", "") ?: ""
+                        pendingWeekHtml = if (weekHtml.isNotEmpty()) weekHtml else null
 
                         val result = parseScheduleJson(text)
                         if (result != null) {
@@ -349,6 +354,7 @@ fun ImportScreen(
             planHtml = pendingPlanHtml,
             allPlanHtml = pendingAllPlanHtml,
             scoreHtml = pendingScoreHtml,
+            weekHtml = pendingWeekHtml,
             onNavigateBack = {
                 showImportSettings = false
                 pendingExamHtml = null
@@ -356,6 +362,7 @@ fun ImportScreen(
                 pendingPlanHtml = null
                 pendingAllPlanHtml = null
                 pendingScoreHtml = null
+                pendingWeekHtml = null
                 onNavigateBack()
             }
         )
