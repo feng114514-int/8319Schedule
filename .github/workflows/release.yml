@@ -24,9 +24,9 @@ jobs:
           distribution: 'temurin'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4.0.4
         with:
-          accept-android-sdk-licenses: true
+          accept-android-sdk-licenses: 'yes'
 
       # compileSdk=37 (Miuix 0.9.0 要求), 显式安装(含预览通道以防37为预览版)
       - name: Install Android platform 37
