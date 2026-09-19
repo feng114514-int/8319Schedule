@@ -493,8 +493,10 @@ fun SimpleImportSettingsScreen(
                                             return@launch
                                         }
                                         
-                                        scheduleViewModel.createSchedule(finalScheduleName, scheduleDescription)
-                                        finalScheduleId = scheduleViewModel.activeScheduleId.value
+                                        // 必须等待创建完成并拿到真实ID，否则会写入旧课表
+                                        finalScheduleId = scheduleViewModel.createScheduleAndGetId(
+                                            finalScheduleName, scheduleDescription
+                                        )
                                     } else {
                                         if (finalScheduleId <= 0 && schedules.isNotEmpty()) {
                                             finalScheduleId = schedules.first().id
@@ -505,16 +507,14 @@ fun SimpleImportSettingsScreen(
                                     val calendar = Calendar.getInstance()
                                     calendar.set(startYear, startMonth, startDay, 0, 0, 0)
                                     calendar.set(Calendar.MILLISECOND, 0)
-                                    scheduleViewModel.updateStartDate(finalScheduleId, calendar.timeInMillis)
+                                    scheduleViewModel.updateStartDateAndWait(finalScheduleId, calendar.timeInMillis)
                                     
-                                    viewModel.deleteCoursesByScheduleId(finalScheduleId)
+                                    // 原子替换：先删后插，避免异步删除与插入之间的竞态
+                                    viewModel.replaceCoursesForSchedule(finalScheduleId, parseResult.courses)
                                     
-                                    parseResult.courses.forEach { course ->
-                                        val updatedCourse = course.copy(scheduleId = finalScheduleId)
-                                        viewModel.addCourse(updatedCourse)
-                                    }
-                                    
-                                    scheduleViewModel.activateSchedule(finalScheduleId)
+                                    scheduleViewModel.activateScheduleAndWait(finalScheduleId)
+                                    // 课程ViewModel持有独立的激活课表ID，必须同步切换
+                                    viewModel.setActiveScheduleId(finalScheduleId)
                                     
                                     val todayCalendar = Calendar.getInstance()
                                     val today = todayCalendar.timeInMillis

@@ -3,7 +3,6 @@ package com.example.a8319schedule.data
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.util.UUID
 
 object TimetableParser {
 
@@ -19,6 +18,45 @@ object TimetableParser {
     private val REGEX_WEEK_RANGE = Regex("(\\d+)\\s*[-~]\\s*(\\d+)\\s*周")
     private val REGEX_WEEK_RANGE_PREFIXED = Regex("第\\s*(\\d+)\\s*[-~]\\s*(\\d+)\\s*周")
     private val REGEX_SINGLE_WEEK = Regex("(?:第)?(\\d+)\\s*周")
+
+    // 单元格内多段课程的分隔线：----------------------
+    private val REGEX_BLOCK_SEPARATOR = Regex("-{5,}")
+    // 节次：[01-02节]
+    private val REGEX_SECTION = Regex("\\[\\s*(\\d+)\\s*-\\s*(\\d+)\\s*节\\s*]")
+    // 周次表达式主体："1,3,5,7,9-16(周)"、"2-16(周)"、"第1-16周"、"1~8周"
+    private val REGEX_WEEK_TOKEN =
+        Regex("([0-9]{1,2}(?:\\s*[,，、]\\s*[0-9]{1,2})*(?:\\s*[-~－—]\\s*[0-9]{1,2})?)\\s*[（(]?\\s*周")
+    // 纯周次表达式（不含"周"字），如 "1,3,5,7,9-16"
+    private val REGEX_PURE_WEEK_EXPR = Regex("[0-9]{1,2}(?:\\s*[,，、]\\s*[0-9]{1,2})*(?:\\s*[-~－—]\\s*[0-9]{1,2})?")
+
+    /**
+     * 解析教务系统的周次表达式，返回去重升序的周次列表（保留单双周）。
+     * 例："1,3,5,7,9-16(周)" -> [1,3,5,7,9,10,11,12,13,14,15,16]
+     *    "2,4,6,8(周)"      -> [2,4,6,8]
+     * 解析不出时返回空列表，由调用方决定兜底策略。
+     */
+    fun parseWeekExpression(raw: String): List<Int> {
+        if (raw.isBlank()) return emptyList()
+        val body = REGEX_WEEK_TOKEN.find(raw)?.groupValues?.get(1)
+            ?: raw.trim().takeIf { REGEX_PURE_WEEK_EXPR.matchEntire(it) != null }
+            ?: return emptyList()
+
+        val weeks = LinkedHashSet<Int>()
+        for (part in body.split(',', '，', '、')) {
+            val p = part.trim()
+            if (p.isEmpty()) continue
+            val seg = p.split('-', '~', '－', '—', limit = 2)
+            val start = seg[0].trim().toIntOrNull() ?: continue
+            val end = if (seg.size == 2) (seg[1].trim().toIntOrNull() ?: start) else start
+            if (start !in 1..30 || end !in 1..30) continue
+            if (start <= end) {
+                for (w in start..end) weeks.add(w)
+            } else {
+                weeks.add(start)
+            }
+        }
+        return weeks.sorted()
+    }
     
     data class ParseResult(
         val courses: List<Course>,
@@ -111,24 +149,29 @@ object TimetableParser {
         
         for (rowIndex in 1 until rows.size) {
             val row = rows[rowIndex]
-            val cells = row.select("td")
-            
+            // 第 0 列是节次/时间列（th 或 td），其后依次是周一~周日
+            val cells = row.select("th, td")
+            if (cells.isEmpty()) continue
+
             for (cellIndex in 1 until cells.size) {
                 val cell = cells[cellIndex]
                 val dayOfWeek = cellIndex
-                
-                val divs = cell.select("div.kbcontent, div.kbcontent1")
-                
-                for (div in divs) {
-                    val weekCourses = parseCourseFromDiv(div, dayOfWeek, rowIndex)
-                    for (course in weekCourses) {
-                        val color = colorMap.getOrPut(course.name) {
-                            val c = courseColors[colorIndex % courseColors.size]
-                            colorIndex++
-                            c
-                        }
-                        courses.add(course.copy(color = color))
+                if (dayOfWeek > 7) break
+
+                // 同一单元格内可能同时存在简略版(kbcontent1)与详细版(kbcontent)两个 div，
+                // 内容重复，只取其一；优先详细版（含教师、节次）
+                val div = cell.select("div.kbcontent").firstOrNull { !it.hasClass("kbcontent1") }
+                    ?: cell.selectFirst("div.kbcontent1")
+                    ?: continue
+
+                val weekCourses = parseCourseFromDiv(div, dayOfWeek, rowIndex)
+                for (course in weekCourses) {
+                    val color = colorMap.getOrPut(course.name) {
+                        val c = courseColors[colorIndex % courseColors.size]
+                        colorIndex++
+                        c
                     }
+                    courses.add(course.copy(color = color))
                 }
             }
         }
@@ -137,26 +180,52 @@ object TimetableParser {
     }
     
     private fun parseCourseFromDiv(div: Element, dayOfWeek: Int, periodIndex: Int): List<Course> {
-        val courseName = extractCourseName(div)
-        if (courseName.isNullOrEmpty()) return emptyList()
-        
-        val teacher = extractTeacher(div)
-        val classroom = extractClassroom(div)
-        val weekRange = extractWeekRange(div)
-        
-        // 将大节编号(1-5)转换为小节编号(1-10)，与AI/手动添加的课程数据格式保持一致
-        // 大节1→小节1-2, 大节2→小节3-4, 大节3→小节5-6, 大节4→小节7-8, 大节5→小节9-10
-        val startPeriod = (periodIndex - 1) * 2 + 1
-        val endPeriod = periodIndex * 2
-        
-        // 创建课程组ID，基于课程名称、教师、教室、星期几和节次
-        val courseGroupId = "${courseName}_${teacher}_${classroom}_${dayOfWeek}_${periodIndex}"
-        
-        // 为每个周次创建独立的课程记录
+        val blocks = splitCourseBlocks(div)
         val courses = mutableListOf<Course>()
-        for (week in weekRange.first..weekRange.second) {
-            val courseInstanceId = UUID.randomUUID().toString()
-            courses.add(Course(
+        blocks.forEachIndexed { blockIndex, block ->
+            courses.addAll(buildCourses(block, dayOfWeek, periodIndex, blockIndex))
+        }
+        return courses
+    }
+
+    /**
+     * 一个单元格内可能存在多段课程（不同周次/教室），以 ---------------------- 分隔。
+     * 必须拆分后逐段解析，否则单双周会被合并成连续周次。
+     */
+    private fun splitCourseBlocks(div: Element): List<Element> {
+        val html = div.html()
+        if (!REGEX_BLOCK_SEPARATOR.containsMatchIn(html)) return listOf(div)
+
+        val blocks = REGEX_BLOCK_SEPARATOR.split(html)
+            .map { Jsoup.parseBodyFragment(it).body() }
+            .filter { it.text().replace('\u00A0', ' ').isNotBlank() }
+        return blocks.ifEmpty { listOf(div) }
+    }
+
+    private fun buildCourses(
+        block: Element,
+        dayOfWeek: Int,
+        periodIndex: Int,
+        blockIndex: Int
+    ): List<Course> {
+        val courseName = extractCourseName(block) ?: return emptyList()
+
+        val teacher = extractTeacher(block)
+        val classroom = extractClassroom(block)
+        val weeks = extractWeeks(block.text())
+
+        // 节次：优先使用 "[01-02节]" 这类精确节次，否则按大节换算
+        // 大节1→小节1-2, 大节2→小节3-4, 大节3→小节5-6, 大节4→小节7-8, 大节5→小节9-10
+        val section = REGEX_SECTION.find(block.text())
+        val startPeriod = section?.groupValues?.get(1)?.toIntOrNull() ?: ((periodIndex - 1) * 2 + 1)
+        val endPeriod = section?.groupValues?.get(2)?.toIntOrNull() ?: (periodIndex * 2)
+
+        // 课程组ID：加入块索引，避免同一单元格内多段课程互相覆盖
+        val courseGroupId = "${courseName}_${teacher}_${classroom}_${dayOfWeek}_${periodIndex}_$blockIndex"
+
+        // 为每个周次创建独立的课程记录（周次不连续时只在不连续的周生成，如单双周）
+        return weeks.map { week ->
+            Course(
                 name = courseName,
                 teacher = teacher,
                 classroom = classroom,
@@ -166,40 +235,52 @@ object TimetableParser {
                 endPeriod = endPeriod,
                 color = 0xFF4CAF50,
                 courseGroupId = courseGroupId,
-                courseInstanceId = courseInstanceId
-            ))
+                courseInstanceId = "${courseGroupId}_$week"
+            )
         }
-        
-        return courses
     }
     
     private fun extractCourseName(div: Element): String? {
-        val firstFont = div.select("font").first()
-        if (firstFont != null) {
-            val text = firstFont.text().trim()
-            if (!text.startsWith("周") && !text.contains("节") &&
-                !text.matches(REGEX_COURSE_CODE)) {
-                return text
-            }
-        }
-        
-        val ownText = div.ownText().trim()
-        if (ownText.isNotEmpty() && !ownText.startsWith("周")) {
+        // 课程名通常是单元格内紧跟 <br> 之前的纯文本节点
+        val ownText = div.ownText().replace('\u00A0', ' ').trim()
+        if (ownText.isNotBlank() && !ownText.startsWith("周") &&
+            ownText.trim { it == '-' }.isNotBlank()
+        ) {
             return ownText
         }
-        
-        val link = div.select("a").first()
-        if (link != null) {
-            return link.text().trim()
+
+        // 兜底：课程名被包在 font/a 里时，取第一个不像周次/教师/教室的文本
+        for (font in div.select("font")) {
+            val title = font.attr("title")
+            if (title == "老师" || title == "教师" || title == "教室" || title == "地点") continue
+            val text = font.text().replace('\u00A0', ' ').trim()
+            if (text.isBlank()) continue
+            if (text.startsWith("周") || text.contains("(周)") || text.contains("节]")) continue
+            if (text.startsWith("(") && text.endsWith(")")) continue
+            if (text.matches(REGEX_COURSE_CODE)) continue
+            return text
         }
-        
+
+        val link = div.selectFirst("a")?.text()?.trim()
+        if (!link.isNullOrEmpty()) return link
+
         return null
     }
     
     private fun extractTeacher(div: Element): String {
-        val fonts = div.select("font")
-        for (font in fonts) {
+        // 教务系统在 font 上标注了 title="老师"/"教师"，优先按标注取，避免靠字数猜测
+        for (key in listOf("老师", "教师")) {
+            val value = div.selectFirst("font[title='$key']")?.text()
+                ?.replace('\u00A0', ' ')?.trim()
+            if (!value.isNullOrEmpty()) return value
+        }
+
+        for (font in div.select("font")) {
+            val title = font.attr("title")
+            if (title == "教室" || title == "地点") continue
             val text = font.text().trim()
+            if (text.startsWith("(") && text.endsWith(")")) continue
+            if (text.contains("(周)") || text.contains("节]")) continue
             // 老师通常是2-4个汉字
             if (text.matches(REGEX_CHINESE_NAME_2_4)) {
                 return text
@@ -222,9 +303,19 @@ object TimetableParser {
     }
     
     private fun extractClassroom(div: Element): String {
-        val fonts = div.select("font")
-        for (font in fonts) {
+        // 教务系统在 font 上标注了 title="教室"/"地点"，优先按标注取
+        for (key in listOf("教室", "地点")) {
+            val value = div.selectFirst("font[title='$key']")?.text()
+                ?.replace('\u00A0', ' ')?.trim()
+            if (!value.isNullOrEmpty()) return value
+        }
+
+        for (font in div.select("font")) {
+            val title = font.attr("title")
+            if (title == "老师" || title == "教师") continue
             val text = font.text().trim()
+            if (text.startsWith("(") && text.endsWith(")")) continue
+            if (text.contains("(周)") || text.contains("节]")) continue
             // 教室通常包含数字和字母，如 "A101", "教学楼B203"
             if (text.matches(REGEX_ROOM_NUMBER) ||
                 text.contains("楼") || text.contains("教室") || text.contains("实验室")) {
@@ -246,31 +337,28 @@ object TimetableParser {
         return ""
     }
     
-    private fun extractWeekRange(div: Element): Pair<Int, Int> {
-        val text = div.text()
-        
-        val rangeMatch = REGEX_WEEK_RANGE.find(text)
+    /**
+     * 提取周次列表，保留单双周等不连续周次。
+     * 例："大学英语(三) 1,3,5,7,9-16(周) 2306" -> [1,3,5,7,9,10,11,12,13,14,15,16]
+     */
+    private fun extractWeeks(text: String): List<Int> {
+        val weeks = parseWeekExpression(text)
+        if (weeks.isNotEmpty()) return weeks
+
+        val rangeMatch = REGEX_WEEK_RANGE.find(text) ?: REGEX_WEEK_RANGE_PREFIXED.find(text)
         if (rangeMatch != null) {
-            val start = rangeMatch.groupValues[1].toIntOrNull() ?: 1
-            val end = rangeMatch.groupValues[2].toIntOrNull() ?: 16
-            return Pair(start, end)
+            val start = rangeMatch.groupValues[1].toIntOrNull()
+            val end = rangeMatch.groupValues[2].toIntOrNull()
+            if (start != null && end != null && start <= end) {
+                return (start..end).toList()
+            }
         }
 
-        val match2 = REGEX_WEEK_RANGE_PREFIXED.find(text)
-        if (match2 != null) {
-            val start = match2.groupValues[1].toIntOrNull() ?: 1
-            val end = match2.groupValues[2].toIntOrNull() ?: 16
-            return Pair(start, end)
-        }
+        val single = REGEX_SINGLE_WEEK.find(text)?.groupValues?.get(1)?.toIntOrNull()
+        if (single != null) return listOf(single)
 
-        val single = REGEX_SINGLE_WEEK.find(text)
-        if (single != null) {
-            val week = single.groupValues[1].toIntOrNull() ?: 1
-            return Pair(week, week)
-        }
-        
         // 默认1-16周
-        return Pair(1, 16)
+        return (1..16).toList()
     }
     
     fun parsePlainText(text: String): ParseResult {
@@ -310,6 +398,14 @@ object TimetableParser {
                 val endWeek = data["结束周"]?.toIntOrNull() ?: 16
                 val startPeriod = data["开始节"]?.toIntOrNull() ?: period
                 val endPeriod = data["结束节"]?.toIntOrNull() ?: period
+
+                // 周次表达式优先（保留单双周），否则回退到开始周/结束周区间
+                val weekExpr = data["周次"] ?: ""
+                val weekList = if (weekExpr.isNotBlank()) {
+                    parseWeekExpression(weekExpr).ifEmpty { (startWeek..endWeek).toList() }
+                } else {
+                    (startWeek..endWeek).toList()
+                }
                 
                 if (name.isNotEmpty()) {
                     val dayOfWeek = when (dayName) {
@@ -332,11 +428,8 @@ object TimetableParser {
                     // 创建课程组ID，基于课程名称、教师、教室、星期几和节次
                     val courseGroupId = "${name}_${teacher}_${classroom}_${dayOfWeek}_${startPeriod}"
                     
-                    // 为每个周次创建独立的课程记录
-                    for (week in startWeek..endWeek) {
-                        // 创建唯一的课程实例ID
-                        val courseInstanceId = UUID.randomUUID().toString()
-                        
+                    // 为每个周次创建独立的课程记录（周次不连续时只在不连续的周生成）
+                    for (week in weekList) {
                         courses.add(Course(
                             name = name,
                             teacher = teacher,
@@ -347,7 +440,7 @@ object TimetableParser {
                             endPeriod = endPeriod,
                             color = color,
                             courseGroupId = courseGroupId,
-                            courseInstanceId = courseInstanceId
+                            courseInstanceId = "${courseGroupId}_$week"
                         ))
                     }
                 }

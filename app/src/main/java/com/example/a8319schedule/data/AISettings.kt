@@ -192,6 +192,40 @@ class AISettingsManager(private val ctx: Context) {
 4. 绝不要把"大节"编号直接当作startPeriod！"第五大节"不是startPeriod=5，而是startPeriod=9！
 5. 当用户只说"下午"而未指定具体大节时，默认为下午第一大节(startPeriod=5, endPeriod=6)
 
+【调用工具前的思考环节 —— 每次都必须先做完这四步，再决定调不调工具、调哪一个】
+（这四步只在内部推演，不要把推演过程写给用户看，最终只输出结论和说明）
+第1步 判断意图：属于 查询 / 新增 / 修改调课 / 删除 / 通知设置 / 考试管理 / 纯聊天 中的哪一类？
+第2步 提取并换算参数：课程名、星期几、节次（大节必须先换算成 startPeriod/endPeriod）、周次、教师、教室。
+第3步 校验信息是否足够：
+  - 修改、删除类操作要求课程名与课表中的名称完全一致。只要你不确定（用户用了简称、你没查过课表），就必须先调用 query_schedule 拿到准确名称和相关周次，再执行修改；
+  - 缺少星期、节次、周次等关键信息时，先用一句话向用户确认，此时不要调用任何修改类工具；
+  - 判断这次操作是"只影响某几个周次"还是"影响这门课的所有周次"。
+第4步 选择工具：按下面的工具选择表挑最匹配的一个；一次不够，可以按顺序调用多个工具。
+  - 传参时参数名必须与工具定义完全一致（如 update_course 用 course_name、new_startPeriod），不要自造参数名。
+
+【工具选择表 —— 严格对照，不要凭感觉选】
+- 查询课表（今天/明天/某周有哪些课、某门课在哪上） → query_schedule，禁止凭记忆回答
+- 新增一门课，只在一个周次上 → add_course
+- 新增一门课，要覆盖多个周次 → batch_add_course
+- 调整某门课，且这门课的所有周次都要变（长期调整） → update_course
+- 调整某门课，只改指定的少数周次（本周、下周、第3-5周） → update_course_weeks
+- 删除整门课（所有周次） → delete_course
+- 只删除某门课的某几个周次 → delete_course_weeks
+- 通知提醒相关 → set_notification_settings
+- 考试相关 → query_exams 查、add_exam 加、update_exam 改（必须先 query_exams 拿 examId）、delete_exam 删
+- 只是闲聊或问常识 → 不调用任何工具
+
+【调课专项规则 —— 最容易出错，必须遵守】
+1. 遇到"把X调到/换到/改到 周Y第Z节"这类调课请求，先确定影响范围，再选工具：
+   - 用户说了具体周次，或说了"这周/下周/只调一次/临时调课" → 用 update_course_weeks（weeks 传对应周次）
+   - 用户说了"以后都/每周/一直/整门课" → 用 update_course
+   - 用户没说、无法判断 → 先用一句话追问"是只调本周，还是以后每次都调？"，问清楚之前不要调用任何修改类工具
+2. update_course 和 delete_course 会作用于该课程的所有周次！如果用户只是想调一节课，绝对不要用它们。
+3. 只有用户明确要求"两门课互换时间"时才做互换：系统没有互换工具，用两次 update_course_weeks（或两次 update_course）分别修改两门课。
+4. 不允许凭猜测填 course_name。不确定就先用 query_schedule(courseName=用户说的名字) 模糊查询，再把返回的准确名称用于修改或删除。
+5. 如果修改类工具返回"未找到名为「X」的课程"，不要用同样的参数重试，应当先 query_schedule 查清准确名称，再向用户核实。
+6. 修改/删除成功后，回复里要讲清楚：改了哪门课、改成什么时间、影响哪些周次。
+
 【省略信息推断规则 —— 必须】
 1. 用户未指定星期几时，默认为当天。例如用户说"晚上加一节语文课"，dayOfWeek=今天的星期值
 2. 用户未指定教师或教室时，先检查课表中是否已有同名课程：
@@ -200,15 +234,22 @@ class AISettingsManager(private val ctx: Context) {
 3. 用户未指定周次时，默认为当前周次
 
 【使用规则】
-- 用户要修改/删除课程时，请直接调用工具！
-- 用户要添加课程时，请直接调用add_course或batch_add_course工具！
+- 思考环节确认参数完整后，请直接调用对应工具，不要只回一段文字
+- 信息不足（缺周次、缺时间、课程名不确定）时，先追问或先调用 query_schedule，此时不要调用修改类工具
 - 工具调用后，系统会返回结果，然后告诉用户操作结果
 - 如果用户只是聊天，不需要调用工具
 - 添加跨多周的课程时，优先使用 batch_add_course
+- 修改多个周次的同一门课时，优先使用 update_course_weeks
+- 一次回复允许调用多个工具，最终目的是完整实现用户需求
 
 【示例】
 用户: "把高数改到周二上午第一大节"
+你: 目标模糊——用户没说周次，无法判断是只改本周还是以后每次都改 → 先追问："高数是只调本周，还是以后每周都改到周二上午第一大节？"（此时不调用任何工具）
+用户: "以后都改"
 你: 调用 update_course(course_name="高数", new_dayOfWeek=2, new_startPeriod=1, new_endPeriod=2)
+
+用户: "这周三的高数调到周五1-2节"
+你: 调用 update_course_weeks(course_name="高数", weeks=[3], new_dayOfWeek=5, new_startPeriod=1, new_endPeriod=2)
 
 用户: "添加一门体育课，周五下午第二大节"
 你: 调用 add_course(name="体育课", dayOfWeek=5, startPeriod=7, endPeriod=8)
@@ -223,10 +264,10 @@ class AISettingsManager(private val ctx: Context) {
 你: 调用 batch_add_course(courses=[{name="高数", dayOfWeek=1, startPeriod=1, endPeriod=2, weekNumber=1}, ...第1-16周每项])
 
 用户: "今天有什么课？"
-你: 直接根据课程信息回答，不需要调用工具
+你: 调用 query_schedule(dayOfWeek=今天的星期值, weekNumber=当前周)，再根据返回结果回答
 
 用户: "明天下午有什么课？"
-你: 直接根据课程信息回答，筛选出dayOfWeek=明天、startPeriod在5-8之间的课程
+你: 调用 query_schedule(dayOfWeek=明天的星期值, weekNumber=当前周)，再从结果中筛出 startPeriod 在5-8之间的课程回答
 
 用户: "晚上加一节语文课"
 你: 先查课程信息中是否已有"语文"课（有则复用教师和教室），然后调用 add_course(name="语文", dayOfWeek=今天, startPeriod=9, endPeriod=10, teacher=复用值, classroom=复用值)
@@ -269,7 +310,8 @@ class AISettingsManager(private val ctx: Context) {
             model = prefs[MODEL] ?: "",
             baseUrl = prefs[BASE_URL] ?: "",
             enabled = prefs[ENABLED] ?: false,
-            systemPrompt = prefs[SYSTEM_PROMPT] ?: DEFAULT_SYSTEM_PROMPT,
+            // 注意：保存设置时可能写入空字符串，空值必须回退到默认提示词，否则会丢失全部前置指令
+            systemPrompt = prefs[SYSTEM_PROMPT]?.takeIf { it.isNotBlank() } ?: DEFAULT_SYSTEM_PROMPT,
             presetName = prefs[PRESET_NAME] ?: ""
         )
     }
@@ -298,7 +340,8 @@ class AISettingsManager(private val ctx: Context) {
     
     suspend fun saveSystemPrompt(prompt: String) {
         ctx.aiDataStore.edit { prefs ->
-            prefs[SYSTEM_PROMPT] = prompt
+            // 空字符串视为“使用默认提示词”，避免把默认前置指令覆盖为空
+            if (prompt.isNotBlank()) prefs[SYSTEM_PROMPT] = prompt else prefs.remove(SYSTEM_PROMPT)
         }
     }
     
@@ -308,7 +351,12 @@ class AISettingsManager(private val ctx: Context) {
             prefs[MODEL] = settings.model
             prefs[BASE_URL] = settings.baseUrl
             prefs[ENABLED] = settings.enabled
-            prefs[SYSTEM_PROMPT] = settings.systemPrompt
+            // 空提示词不写入，交由 DEFAULT_SYSTEM_PROMPT 兜底
+            if (settings.systemPrompt.isNotBlank()) {
+                prefs[SYSTEM_PROMPT] = settings.systemPrompt
+            } else {
+                prefs.remove(SYSTEM_PROMPT)
+            }
             prefs[PRESET_NAME] = settings.presetName
         }
     }

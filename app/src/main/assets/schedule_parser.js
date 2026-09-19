@@ -24,23 +24,48 @@ function getDoc(table) {
   return table.ownerDocument || document;
 }
 
-// 解析周次，如 "1-3,5,7-9周" -> [1,2,3,5,7,8,9]
+// 解析周次，如 "1,3,5,7,9-16(周)" -> [1,3,5,7,9,10,...,16]
+// 支持 "(周)"/"第N周"/"N周" 多种写法，结果去重升序
 function getWeeks(str) {
   if (!str) return [];
-  let match = str.match(/([\d,\-]+)\(周\)/);
+  let match = str.match(/([\d,\-]+)\s*\(周\)|(?:第)?([\d,\-]+)\s*周/);
   if (!match) return [];
-  
+
+  let body = match[1] || match[2] || '';
   let list = [];
-  let ps = match[1].split(',');
+  let ps = body.split(',');
   for (let p of ps) {
+    p = p.trim();
+    if (!p) continue;
     if (p.includes('-')) {
       let [a, b] = p.split('-').map(Number);
-      for (let i = a; i <= b; i++) list.push(i);
+      if (isNaN(a)) continue;
+      if (isNaN(b)) b = a;
+      for (let i = Math.min(a, b); i <= Math.max(a, b); i++) list.push(i);
     } else {
-      list.push(Number(p));
+      let n = Number(p);
+      if (!isNaN(n)) list.push(n);
     }
   }
-  return list;
+  return Array.from(new Set(list)).sort(function (a, b) { return a - b; });
+}
+
+// 周次数组 -> 紧凑区间串（保留单双周），如 [1,3,5,7,9,10] -> "1,3,5,7,9-10"
+function weeksToRange(list) {
+  if (!list || !list.length) return '';
+  let s = list.slice().sort(function (a, b) { return a - b; });
+  let parts = [];
+  let st = s[0], ed = s[0];
+  for (let i = 1; i < s.length; i++) {
+    if (s[i] === ed + 1) {
+      ed = s[i];
+    } else {
+      parts.push(st === ed ? String(st) : st + '-' + ed);
+      st = ed = s[i];
+    }
+  }
+  parts.push(st === ed ? String(st) : st + '-' + ed);
+  return parts.join(',');
 }
 
 // 解析节次，如 "[1-2节]" -> {s:1, e:2}
@@ -192,9 +217,11 @@ function formatForAndroid(res) {
     for (let i = 0; i < res.courses.length; i++) {
       let c = res.courses[i];
       
-      // 周次数组转字符串
-      let weeksStr = c.weeks && c.weeks.length > 0 ? 
-        c.weeks[0] + "-" + c.weeks[c.weeks.length - 1] : "";
+      // 周次：保留单双周等不连续周次，不做首尾塌陷
+      // weeksList 为无损通道（数组），weeks 为紧凑区间串（如 "1,3,5,7,9-16"）
+      let weeksList = c.weeks && c.weeks.length > 0 ? c.weeks.slice() : [];
+      weeksList = Array.from(new Set(weeksList)).sort(function (a, b) { return a - b; });
+      let weeksStr = weeksToRange(weeksList);
       
       list.push({
         name: c.name || "",
@@ -202,7 +229,10 @@ function formatForAndroid(res) {
         location: c.room || "",
         weekDay: c.dayName || '未知',
         timeSlot: "第" + c.period + "大节",
-        weeks: weeksStr
+        weeks: weeksStr,
+        weeksList: weeksList,
+        startSection: c.sections ? (c.sections.s || 0) : 0,
+        endSection: c.sections ? (c.sections.e || 0) : 0
       });
     }
     
@@ -227,13 +257,18 @@ function formatAsPlainText(res) {
   let text = "";
   
   for (let c of res.courses) {
+    let weeksList = c.weeks && c.weeks.length > 0 ? c.weeks.slice() : [];
+    weeksList = Array.from(new Set(weeksList)).sort(function (a, b) { return a - b; });
+    
     text += "课程:" + (c.name || "") + "\n";
     text += "教师:" + (c.teacher || "") + "\n";
     text += "地点:" + (c.room || "") + "\n";
     text += "星期:" + (c.dayName || "") + "\n";
     text += "节次:" + (c.period || 0) + "\n";
-    text += "开始周:" + (c.weeks && c.weeks.length > 0 ? c.weeks[0] : 0) + "\n";
-    text += "结束周:" + (c.weeks && c.weeks.length > 0 ? c.weeks[c.weeks.length - 1] : 0) + "\n";
+    // 周次：保留单双周等不连续周次（如 1,3,5,7,9-16）
+    text += "周次:" + weeksToRange(weeksList) + "\n";
+    text += "开始周:" + (weeksList.length > 0 ? weeksList[0] : 0) + "\n";
+    text += "结束周:" + (weeksList.length > 0 ? weeksList[weeksList.length - 1] : 0) + "\n";
     text += "开始节:" + (c.sections ? c.sections.s : 0) + "\n";
     text += "结束节:" + (c.sections ? c.sections.e : 0) + "\n";
     text += "---\n";

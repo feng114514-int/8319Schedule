@@ -394,8 +394,10 @@ fun ImportSettingsScreen(
                                             return@launch
                                         }
                                         
-                                        scheduleViewModel.createSchedule(finalScheduleName, scheduleDescription)
-                                        finalScheduleId = scheduleViewModel.activeScheduleId.value
+                                        // 必须等待创建完成并拿到真实ID，否则会写入旧课表
+                                        finalScheduleId = scheduleViewModel.createScheduleAndGetId(
+                                            finalScheduleName, scheduleDescription
+                                        )
                                     } else {
                                         if (finalScheduleId <= 0 && schedules.isNotEmpty()) {
                                             finalScheduleId = schedules.first().id
@@ -403,12 +405,12 @@ fun ImportSettingsScreen(
                                         }
                                     }
                                     
-                                    selectedCourses.forEach { course ->
-                                        val updatedCourse = course.copy(scheduleId = finalScheduleId)
-                                        viewModel.addCourse(updatedCourse)
-                                    }
+                                    // 原子替换：先删后插，避免异步删除与插入之间的竞态
+                                    viewModel.replaceCoursesForSchedule(finalScheduleId, selectedCourses)
                                     
-                                    scheduleViewModel.activateSchedule(finalScheduleId)
+                                    scheduleViewModel.activateScheduleAndWait(finalScheduleId)
+                                    // 课程ViewModel持有独立的激活课表ID，必须同步切换
+                                    viewModel.setActiveScheduleId(finalScheduleId)
                                     
                                     withContext(Dispatchers.Main) {
                                         AndroidToast.makeText(

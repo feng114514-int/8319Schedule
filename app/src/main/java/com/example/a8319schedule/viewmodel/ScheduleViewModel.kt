@@ -60,28 +60,47 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
     }
     
     /**
-     * 创建新课表
+     * 创建新课表并返回新课表ID（可等待版本）。
+     *
+     * 导入流程必须用它：只有拿到新建课表的真实ID之后才能写入课程。
+     * 若调用异步的 createSchedule 后再读 activeScheduleId，会读到旧课表ID，
+     * 导致"课表新建成功，但课程覆盖到了原课表"。
+     */
+    suspend fun createScheduleAndGetId(name: String, description: String = ""): Long {
+        val newId = scheduleRepo.createSchedule(name, description)
+        _activeScheduleId.value = newId
+        _activeSchedule.value = scheduleRepo.getScheduleById(newId)
+        return newId
+    }
+
+    /**
+     * 创建新课表（异步版本，供不需要ID的调用点使用）
      */
     fun createSchedule(name: String, description: String = "") {
         viewModelScope.launch {
-            val newId = scheduleRepo.createSchedule(name, description)
-            _activeScheduleId.value = newId
-            _activeSchedule.value = scheduleRepo.getScheduleById(newId)
+            createScheduleAndGetId(name, description)
         }
     }
     
+    /**
+     * 激活指定课表（可等待版本）
+     */
+    suspend fun activateScheduleAndWait(scheduleId: Long) {
+        scheduleRepo.activateSchedule(scheduleId)
+        _activeScheduleId.value = scheduleId
+        _activeSchedule.value = scheduleRepo.getScheduleById(scheduleId)
+        
+        // 切换课表后，立即更新小部件
+        com.example.a8319schedule.ScheduleWidgetProvider.updateAllWidgets(getApplication())
+        com.example.a8319schedule.ScheduleWidgetProvider.forceUpdateAllWidgets(getApplication())
+    }
+
     /**
      * 激活指定课表
      */
     fun activateSchedule(scheduleId: Long) {
         viewModelScope.launch {
-            scheduleRepo.activateSchedule(scheduleId)
-            _activeScheduleId.value = scheduleId
-            _activeSchedule.value = scheduleRepo.getScheduleById(scheduleId)
-            
-            // 切换课表后，立即更新小部件
-            com.example.a8319schedule.ScheduleWidgetProvider.updateAllWidgets(getApplication())
-            com.example.a8319schedule.ScheduleWidgetProvider.forceUpdateAllWidgets(getApplication())
+            activateScheduleAndWait(scheduleId)
         }
     }
     
@@ -140,24 +159,31 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
     fun getCoursesForSchedule(scheduleId: Long) = courseRepo.getCoursesByScheduleId(scheduleId)
     
     /**
+     * 更新课表的开学日期（可等待版本）
+     */
+    suspend fun updateStartDateAndWait(scheduleId: Long, startDate: Long) {
+        android.util.Log.d("ScheduleViewModel", "开始更新课表ID: $scheduleId 的开学日期为: $startDate")
+        scheduleRepo.updateStartDate(scheduleId, startDate)
+        
+        // 获取更新后的课表信息
+        val updatedSchedule = scheduleRepo.getScheduleById(scheduleId)
+        android.util.Log.d("ScheduleViewModel", "数据库中的更新结果: ${updatedSchedule?.name}, ID: ${updatedSchedule?.id}, 开学日期: ${updatedSchedule?.startDate}")
+        
+        // 如果更新的是当前激活的课表，也需要更新 ViewModel 中的状态
+        if (scheduleId == _activeScheduleId.value) {
+            _activeSchedule.value = updatedSchedule
+            android.util.Log.d("ScheduleViewModel", "更新了ViewModel中的激活课表状态")
+        } else {
+            android.util.Log.d("ScheduleViewModel", "更新的不是当前激活的课表，不更新ViewModel状态")
+        }
+    }
+
+    /**
      * 更新课表的开学日期
      */
     fun updateStartDate(scheduleId: Long, startDate: Long) {
         viewModelScope.launch {
-            android.util.Log.d("ScheduleViewModel", "开始更新课表ID: $scheduleId 的开学日期为: $startDate")
-            scheduleRepo.updateStartDate(scheduleId, startDate)
-            
-            // 获取更新后的课表信息
-            val updatedSchedule = scheduleRepo.getScheduleById(scheduleId)
-            android.util.Log.d("ScheduleViewModel", "数据库中的更新结果: ${updatedSchedule?.name}, ID: ${updatedSchedule?.id}, 开学日期: ${updatedSchedule?.startDate}")
-            
-            // 如果更新的是当前激活的课表，也需要更新 ViewModel 中的状态
-            if (scheduleId == _activeScheduleId.value) {
-                _activeSchedule.value = updatedSchedule
-                android.util.Log.d("ScheduleViewModel", "更新了ViewModel中的激活课表状态")
-            } else {
-                android.util.Log.d("ScheduleViewModel", "更新的不是当前激活的课表，不更新ViewModel状态")
-            }
+            updateStartDateAndWait(scheduleId, startDate)
         }
     }
 }

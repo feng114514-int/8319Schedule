@@ -49,7 +49,7 @@ class AICourseService(
                 put("type", "function")
                 put("function", JSONObject().apply {
                     put("name", "add_course")
-                    put("description", "添加一门新课程到课表。如果用户未指定星期几，默认为当天；如果未指定教师/教室，先检查已有同名课程并复用其信息，无同名课程则需询问用户")
+                    put("description", "添加一门新课程到课表（只添加一个周次的上课记录，需要一次添加多个周次请改用 batch_add_course）。如果用户未指定星期几，默认为当天；如果未指定教师/教室，先检查已有同名课程并复用其信息，无同名课程则需询问用户。不确定课表中是否已有同名课程时，先调用 query_schedule 查询")
                     put("parameters", JSONObject().apply {
                         put("type", "object")
                         put("required", JSONArray().put("name").put("dayOfWeek").put("startPeriod").put("endPeriod"))
@@ -90,7 +90,7 @@ class AICourseService(
                 put("type", "function")
                 put("function", JSONObject().apply {
                     put("name", "batch_add_course")
-                    put("description", "批量添加多门课程到课表，一次调用可添加多个课程记录（如同一课程在多个周次上课）。当需要添加跨多周的课程时，优先使用此工具而非多次调用add_course。用户未指定星期几时默认当天；未指定教师/教室时，已有同名课程则复用")
+                    put("description", "批量添加多门课程到课表，一次调用可添加多个课程记录（如同一课程在多个周次上课）。当需要添加跨多周的课程时，优先使用此工具而非多次调用add_course。列表里每个元素代表一次上课记录，必须用 weekNumber 指明它属于第几周。用户未指定星期几时默认当天；未指定教师/教室时，已有同名课程则复用")
                     put("parameters", JSONObject().apply {
                         put("type", "object")
                         put("required", JSONArray().put("courses"))
@@ -141,14 +141,14 @@ class AICourseService(
                 put("type", "function")
                 put("function", JSONObject().apply {
                     put("name", "update_course")
-                    put("description", "修改课表中现有课程的信息")
+                    put("description", "修改课表中现有课程的信息，作用范围是该课程的全部周次。仅当用户要长期调整整门课时使用；如果只是调某几周或某一周的课，必须改用 update_course_weeks。course_name 必须与课表中的名称完全一致，不确定时先调用 query_schedule 查询准确名称")
                     put("parameters", JSONObject().apply {
                         put("type", "object")
                         put("required", JSONArray().put("course_name"))
                         put("properties", JSONObject().apply {
                             put("course_name", JSONObject().apply {
                                 put("type", "string")
-                                put("description", "要修改的课程名称（必须精确匹配）")
+                                put("description", "要修改的课程名称，必须与课表中的名称完全一致（不要用简称）。不确定时先调用 query_schedule(courseName=...) 查询准确名称")
                             })
                             put("new_name", JSONObject().apply {
                                 put("type", "string")
@@ -186,14 +186,14 @@ class AICourseService(
                 put("type", "function")
                 put("function", JSONObject().apply {
                     put("name", "delete_course")
-                    put("description", "删除课表中的课程")
+                    put("description", "删除课表中的课程，会删除该课程的全部周次记录；只删除某几个周次请改用 delete_course_weeks。course_name 必须与课表中的名称完全一致，不确定时先调用 query_schedule 查询准确名称")
                     put("parameters", JSONObject().apply {
                         put("type", "object")
                         put("required", JSONArray().put("course_name"))
                         put("properties", JSONObject().apply {
                             put("course_name", JSONObject().apply {
                                 put("type", "string")
-                                put("description", "要删除的课程名称（必须精确匹配）")
+                                put("description", "要删除的课程名称，必须与课表中的名称完全一致（不要用简称）。不确定时先调用 query_schedule(courseName=...) 查询准确名称")
                             })
                         })
                     })
@@ -203,14 +203,14 @@ class AICourseService(
                 put("type", "function")
                 put("function", JSONObject().apply {
                     put("name", "update_course_weeks")
-                    put("description", "批量修改某个课程在特定周次的信息，可同时修改多个属性")
+                    put("description", "只修改某个课程在指定周次的上课信息，可同时修改多个属性。调课（把某一周或某几周的课换到别的时间/教室）优先使用本工具。weeks 必须是 query_schedule 返回过的周次；若整门课所有周次都要改，请改用 update_course。course_name 必须与课表中的名称完全一致，不确定时先调用 query_schedule 查询准确名称")
                     put("parameters", JSONObject().apply {
                         put("type", "object")
                         put("required", JSONArray().put("course_name").put("weeks"))
                         put("properties", JSONObject().apply {
                             put("course_name", JSONObject().apply {
                                 put("type", "string")
-                                put("description", "要修改的课程名称（必须精确匹配）")
+                                put("description", "要修改的课程名称，必须与课表中的名称完全一致（不要用简称）。不确定时先调用 query_schedule(courseName=...) 查询准确名称")
                             })
                             put("weeks", JSONObject().apply {
                                 put("type", "array")
@@ -251,14 +251,14 @@ class AICourseService(
                 put("type", "function")
                 put("function", JSONObject().apply {
                     put("name", "delete_course_weeks")
-                    put("description", "批量删除某个课程在特定周次的课程记录")
+                    put("description", "只删除某个课程在指定周次的课程记录（其余周次保留）；要删除整门课请改用 delete_course。course_name 必须与课表中的名称完全一致，不确定时先调用 query_schedule 查询准确名称")
                     put("parameters", JSONObject().apply {
                         put("type", "object")
                         put("required", JSONArray().put("course_name").put("weeks"))
                         put("properties", JSONObject().apply {
                             put("course_name", JSONObject().apply {
                                 put("type", "string")
-                                put("description", "要删除的课程名称（必须精确匹配）")
+                                put("description", "要删除的课程名称，必须与课表中的名称完全一致（不要用简称）。不确定时先调用 query_schedule(courseName=...) 查询准确名称")
                             })
                             put("weeks", JSONObject().apply {
                                 put("type", "array")
@@ -275,7 +275,7 @@ class AICourseService(
                 put("type", "function")
                 put("function", JSONObject().apply {
                     put("name", "query_schedule")
-                    put("description", "查询课表中指定条件的课程。当用户问'今天/明天/某天有什么课'、'这周/某周有哪些课'、'某门课在什么时候'等查询类问题时，必须调用此工具获取课程数据，不要凭记忆回答。可按星期几、周次、课程名等条件筛选，不传条件则返回所有课程概要")
+                    put("description", "查询课表中指定条件的课程。当用户问'今天/明天/某天有什么课'、'这周/某周有哪些课'、'某门课在什么时候'等查询类问题时，必须调用此工具获取课程数据，不要凭记忆回答。修改或删除课程前，如果不知道课程在课表中的准确名称、或不清楚它涉及哪些周次，也必须先用本工具查询确认。可按星期几、周次、课程名等条件筛选，不传条件则返回所有课程概要")
                     put("parameters", JSONObject().apply {
                         put("type", "object")
                         put("properties", JSONObject().apply {

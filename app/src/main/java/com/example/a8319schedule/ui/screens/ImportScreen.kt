@@ -645,64 +645,46 @@ private suspend fun parseScheduleJson(jsonText: String): TimetableParser.ParseRe
                         c
                     }
                     
-                    if (weeks.isNotEmpty()) {
-                        try {
-                            val weekRanges = weeks.split(",")
-                            val weekNumbers = mutableListOf<Int>()
-                            
-                            for (range in weekRanges) {
-                                if (range.contains("-")) {
-                                    val weekRange = range.split("-")
-                                    if (weekRange.size == 2) {
-                                        val startWeek = weekRange[0].trim().toInt()
-                                        val endWeek = weekRange[1].trim().toInt()
-                                        for (weekNumber in startWeek..endWeek) {
-                                            weekNumbers.add(weekNumber)
-                                        }
-                                    }
-                                } else {
-                                    weekNumbers.add(range.trim().toInt())
-                                }
-                            }
-                            
-                            val courseGroupId = "${name}_${teacher}_${location}_${dayOfWeek}_${bigPeriod}"
-                            
-                            for (weekNumber in weekNumbers) {
-                                val course = Course(
-                                    name = name,
-                                    teacher = teacher,
-                                    classroom = location,
-                                    dayOfWeek = dayOfWeek,
-                                    weekNumber = weekNumber,
-                                    startPeriod = startPeriod,
-                                    endPeriod = endPeriod,
-                                    color = color,
-                                    courseGroupId = courseGroupId,
-                                    courseInstanceId = "${courseGroupId}_${weekNumber}",
-                                    scheduleId = 0L
-                                )
-                                courses.add(course)
-                            }
-                        } catch (e: Exception) {
-                            val courseGroupId = "${name}_${teacher}_${location}_${dayOfWeek}_${bigPeriod}"
-                            
-                            for (weekNumber in 1..16) {
-                                val course = Course(
-                                    name = name,
-                                    teacher = teacher,
-                                    classroom = location,
-                                    dayOfWeek = dayOfWeek,
-                                    weekNumber = weekNumber,
-                                    startPeriod = startPeriod,
-                                    endPeriod = endPeriod,
-                                    color = color,
-                                    courseGroupId = courseGroupId,
-                                    courseInstanceId = "${courseGroupId}_${weekNumber}",
-                                    scheduleId = 0L
-                                )
-                                courses.add(course)
-                            }
+                    // 节次：优先使用解析器给出的精确节次（如 [03-04节]）
+                    val startSection = courseJson.optInt("startSection", 0)
+                    val endSection = courseJson.optInt("endSection", 0)
+                    val finalStartPeriod = if (startSection > 0) startSection else startPeriod
+                    val finalEndPeriod = if (endSection > 0 && endSection >= finalStartPeriod) endSection else endPeriod
+
+                    // 周次：优先使用无损数组 weeksList，其次解析紧凑区间串（如 "1,3,5,7,9-16"）
+                    val weekNumbers = mutableListOf<Int>()
+                    val weeksArray = courseJson.optJSONArray("weeksList")
+                    if (weeksArray != null && weeksArray.length() > 0) {
+                        for (w in 0 until weeksArray.length()) {
+                            val week = weeksArray.optInt(w, -1)
+                            if (week > 0) weekNumbers.add(week)
                         }
+                    } else {
+                        weekNumbers.addAll(TimetableParser.parseWeekExpression(weeks))
+                    }
+                    if (weekNumbers.isEmpty()) {
+                        // 解析不出周次时兜底为 1-16 周，保持原有行为
+                        weekNumbers.addAll(1..16)
+                    }
+
+                    val courseGroupId = "${name}_${teacher}_${location}_${dayOfWeek}_${bigPeriod}"
+
+                    // 周次不连续时（单双周）只在对应的周生成记录
+                    for (weekNumber in weekNumbers.distinct().sorted()) {
+                        val course = Course(
+                            name = name,
+                            teacher = teacher,
+                            classroom = location,
+                            dayOfWeek = dayOfWeek,
+                            weekNumber = weekNumber,
+                            startPeriod = finalStartPeriod,
+                            endPeriod = finalEndPeriod,
+                            color = color,
+                            courseGroupId = courseGroupId,
+                            courseInstanceId = "${courseGroupId}_${weekNumber}",
+                            scheduleId = 0L
+                        )
+                        courses.add(course)
                     }
                 }
             }

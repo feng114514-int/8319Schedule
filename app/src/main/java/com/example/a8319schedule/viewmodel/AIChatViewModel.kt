@@ -182,6 +182,12 @@ class AIChatViewModel(application: Application) : AndroidViewModel(application) 
                     append("\n⚠️ 用户说'下午第二大节'指第4大节=第7-8节(startPeriod=7,endPeriod=8)")
                     append("\n⚠️ 用户说'第五大节'指第5大节=第9-10节(startPeriod=9,endPeriod=10)")
                     append("\n⚠️ 大节编号绝不能直接当startPeriod用！")
+                    append("\n\n【调用工具前的思考流程 —— 每次都必须先走完这四步，再决定调不调工具、调哪个】")
+                    append("\n（内部推演即可，不要把推演过程写给用户看）")
+                    append("\n第1步 判断意图：属于 查询 / 新增 / 修改调课 / 删除 / 通知设置 / 考试管理 / 闲聊 中的哪一类")
+                    append("\n第2步 提取参数：课程名、星期几、节次（大节必须先换算成 startPeriod/endPeriod）、周次、教师、教室")
+                    append("\n第3步 校验信息：修改/删除类操作要求课程名与课表完全一致，不确定就先 query_schedule 查准确名称；缺关键信息（周次、时间）就先追问用户，此时不要调用修改类工具；判断这次是只影响某几周还是整门课的所有周次")
+                    append("\n第4步 选择工具：对照下面的工具说明挑最匹配的，参数名必须与工具定义完全一致，不要自造参数名")
                     append("\n\n【省略信息推断规则】")
                     append("\n- 用户未指定星期几时，默认为今天(dayOfWeek=")
                     append(dayOfWeekInt)
@@ -194,10 +200,10 @@ class AIChatViewModel(application: Application) : AndroidViewModel(application) 
                     append("\n- query_schedule: 查询课表！当用户问课程相关问题时，必须调用此工具获取数据，不要凭记忆回答")
                     append("\n- add_course: 添加单门课程（仅添加一个周次）")
                     append("\n- batch_add_course: 批量添加多门课程")
-                    append("\n- update_course: 修改单个课程的属性")
-                    append("\n- update_course_weeks: 批量修改某个课程在特定周次的信息（推荐用于修改多周课程，一次调用即可）")
+                    append("\n- update_course: 修改某门课，作用范围是这门课的所有周次！只用于长期调整整门课；只想调某几周的课请勿使用")
+                    append("\n- update_course_weeks: 只修改某个课程在指定周次的信息（调课首选：把某一周或某几周的课换时间/教室，weeks 传 query_schedule 返回过的周次）")
                     append("\n- delete_course: 删除整个课程（所有周次）")
-                    append("\n- delete_course_weeks: 批量删除某个课程在特定周次的记录")
+                    append("\n- delete_course_weeks: 只删除某个课程在指定周次的记录（其余周次保留）")
                     append("\n- set_notification_settings: 修改通知设置（上课提醒开关、提前提醒分钟数、每日课表摘要开关及推送时间），未提及的设置项保持不变")
                     append("\n- query_exams: 查询考试安排！当用户问考试相关问题时，必须调用此工具获取数据，不要凭记忆回答。返回结果含 examId，仅供后续修改/删除定位用，不要展示给用户")
                     append("\n- add_exam: 添加一条考试记录，必填课程名和考试时间（格式 \"yyyy-MM-dd HH:mm~HH:mm\"）")
@@ -208,122 +214,123 @@ class AIChatViewModel(application: Application) : AndroidViewModel(application) 
                     append("\n- \"好的，已帮你把高数从周一改到周二。\"")
                     append("\n- \"已删除体育课的所有课程记录。\"")
                     append("\n- \"我已把第3、5、7周的高数教室改为301。\"")
+                    append("\n\n【调课决策规则 —— 最易出错，必须遵守】")
+                    append("\n- 先判断影响范围再选工具：用户说了具体周次或「这周/下周/第N周/只调一次/临时调课」→ 用 update_course_weeks 并传对应 weeks；用户说「以后都/每周/一直/整门课」→ 用 update_course；用户什么都没说、无法判断 → 先追问「是只调本周，还是以后每次都调？」，问清楚之前不要调用任何修改类工具")
+                    append("\n- update_course / delete_course 会作用于该课程的所有周次，只是想调一节课时绝对不能使用")
+                    append("\n- 不许凭猜测填 course_name：不确定就先用 query_schedule(courseName=用户说的名字) 模糊查询，再用返回的准确名称去修改或删除")
+                    append("\n- 工具返回「未找到课程」时，不要用同样的参数重试，应先 query_schedule 查清准确名称并向用户核实")
+                    append("\n- 用户要求两门课互换时间时，系统没有互换工具，用两次 update_course_weeks（或两次 update_course）分别修改两门课")
+                    append("\n- 修改/删除成功后，回复里要讲清楚：改了哪门课、改成什么时间、影响哪些周次")
                     append("\n\n【提示】当用户要添加跨多周的课程时（如\"添加高数，第1-10周周一1-2节\"），优先使用 batch_add_course 一次调用！")
                     append("\n        当用户要修改多周的同一课程时（如\"把第3、5、7周的高数改到下午\"），优先使用 update_course_weeks！")
                     append("\n        当用户要求修改多节课程时，允许调用多次工具，最终目的是实现用户需求")
                 }
                 
-                // 添加一个空的assistant消息占位（流式填充）
-                val assistantPlaceholder = ChatMessage(role = "assistant", content = "")
-                _conversationHistory.value = _conversationHistory.value + assistantPlaceholder
-                
-                val fullText = StringBuilder()
-                var toolCallsFromStream = listOf<FunctionCallResult>()
-                
-                // 收集流式输出
-                service.chatStream(
-                    messages = _conversationHistory.value.dropLast(1), // 去掉占位消息
-                    systemPrompt = systemPrompt,
-                    functionResults = emptyList() // 工具调用结果已包含在对话历史的tool消息中
-                ).collect { chunk ->
-                    when (chunk) {
-                        is StreamChunk.Text -> {
-                            fullText.append(chunk.content)
-                            // 实时更新最后一条消息
-                            val current = _conversationHistory.value.toMutableList()
-                            if (current.isNotEmpty() && current.last().role == "assistant") {
-                                current[current.lastIndex] = current.last().copy(content = fullText.toString())
-                                _conversationHistory.value = current
+                // 多轮工具循环：AI 常常需要"先查询确认，再修改"（例如先 query_schedule 拿准确课程名和周次，
+                // 再调用 update_course_weeks）。旧实现只处理一轮，第二轮的 tool_calls 会被直接丢弃，导致调课"没反应"。
+                val maxRounds = 5
+                var round = 0
+                var anyToolExecuted = false
+
+                while (round < maxRounds) {
+                    round++
+
+                    // 添加一个空的assistant消息占位（流式填充）
+                    _conversationHistory.value = _conversationHistory.value +
+                        ChatMessage(role = "assistant", content = "")
+
+                    val roundText = StringBuilder()
+                    var roundToolCalls = listOf<FunctionCallResult>()
+                    var roundError: String? = null
+
+                    service.chatStream(
+                        messages = _conversationHistory.value.dropLast(1), // 去掉占位消息
+                        systemPrompt = systemPrompt,
+                        functionResults = emptyList() // 工具调用结果已包含在对话历史的tool消息中
+                    ).collect { chunk ->
+                        when (chunk) {
+                            is StreamChunk.Text -> {
+                                roundText.append(chunk.content)
+                                // 实时更新最后一条消息
+                                val list = _conversationHistory.value.toMutableList()
+                                if (list.isNotEmpty() && list.last().role == "assistant") {
+                                    list[list.lastIndex] = list.last().copy(content = roundText.toString())
+                                    _conversationHistory.value = list
+                                }
+                            }
+                            is StreamChunk.Done -> {
+                                roundToolCalls = chunk.toolCalls
+                            }
+                            is StreamChunk.Error -> {
+                                roundError = chunk.message
+                                _error.value = chunk.message
                             }
                         }
-                        is StreamChunk.Done -> {
-                            toolCallsFromStream = chunk.toolCalls
-                        }
-                        is StreamChunk.Error -> {
-                            _error.value = chunk.message
-                        }
                     }
-                }
-                
-                // 确保最终文本写入，如果有工具调用则同时保存toolCalls信息
-                val current = _conversationHistory.value.toMutableList()
-                if (current.isNotEmpty() && current.last().role == "assistant") {
-                    if (toolCallsFromStream.isNotEmpty()) {
-                        // 工具调用时：把toolCalls写入assistant消息，确保发给API时格式正确
-                        current[current.lastIndex] = current.last().copy(
-                            content = fullText.toString(),
-                            toolCalls = toolCallsFromStream
+
+                    // 出错时保留已有文本并结束，避免无意义的循环
+                    if (roundError != null) {
+                        val list = _conversationHistory.value.toMutableList()
+                        if (list.isNotEmpty() && list.last().role == "assistant" && roundText.isEmpty()) {
+                            list.removeAt(list.lastIndex)
+                            _conversationHistory.value = list
+                        }
+                        break
+                    }
+
+                    // 本轮没有工具调用：写入最终文本并结束
+                    if (roundToolCalls.isEmpty()) {
+                        val list = _conversationHistory.value.toMutableList()
+                        if (list.isNotEmpty() && list.last().role == "assistant") {
+                            if (roundText.isEmpty()) {
+                                // 空回复，移除占位，避免残留脏消息
+                                list.removeAt(list.lastIndex)
+                            } else {
+                                list[list.lastIndex] = list.last().copy(content = roundText.toString())
+                            }
+                            _conversationHistory.value = list
+                        }
+                        break
+                    }
+
+                    // 有工具调用：先把 toolCalls 写回 assistant 消息，保证后续发给 API 的格式正确
+                    val list = _conversationHistory.value.toMutableList()
+                    if (list.isNotEmpty() && list.last().role == "assistant") {
+                        list[list.lastIndex] = list.last().copy(
+                            content = roundText.toString(),
+                            toolCalls = roundToolCalls
                         )
-                    } else {
-                        current[current.lastIndex] = current.last().copy(content = fullText.toString())
+                        _conversationHistory.value = list
                     }
-                    _conversationHistory.value = current
-                }
-                
-                // 处理函数调用
-                if (toolCallsFromStream.isNotEmpty()) {
-                    toolCallsFromStream.forEach { call ->
+
+                    // 执行本轮的全部工具调用，并把结果作为 role="tool" 写入对话历史
+                    roundToolCalls.forEach { call ->
                         val resultContent = executeFunction(call, activeScheduleId)
+                        anyToolExecuted = true
                         functionResults.add(FunctionCallResult(
                             toolCallId = call.toolCallId,
                             functionName = call.functionName,
                             arguments = call.arguments,
                             resultContent = resultContent
                         ))
-                        // 将tool结果消息写入对话历史（role="tool"）
-                        val toolMessage = ChatMessage(
+                        _conversationHistory.value = _conversationHistory.value + ChatMessage(
                             role = "tool",
                             content = resultContent,
                             toolCallId = call.toolCallId
                         )
-                        _conversationHistory.value = _conversationHistory.value + toolMessage
                     }
-                    
-                    // 函数调用完成后，再次流式调用AI获取最终回复
-                    val secondPlaceholder = ChatMessage(role = "assistant", content = "")
-                    _conversationHistory.value = _conversationHistory.value + secondPlaceholder
-                    
-                    val secondText = StringBuilder()
-                    
-                    service.chatStream(
-                        messages = _conversationHistory.value.dropLast(1), // 去掉占位
-                        systemPrompt = systemPrompt,
-                        functionResults = emptyList() // 已包含在对话历史中
-                    ).collect { chunk ->
-                        when (chunk) {
-                            is StreamChunk.Text -> {
-                                secondText.append(chunk.content)
-                                val current = _conversationHistory.value.toMutableList()
-                                if (current.isNotEmpty() && current.last().role == "assistant") {
-                                    current[current.lastIndex] = current.last().copy(content = secondText.toString())
-                                    _conversationHistory.value = current
-                                }
-                            }
-                            is StreamChunk.Done -> { }
-                            is StreamChunk.Error -> {
-                                _error.value = chunk.message
-                            }
-                        }
-                    }
-                    
-                    // 确保最终文本写入，空消息则移除占位
-                    val finalList = _conversationHistory.value.toMutableList()
-                    if (finalList.isNotEmpty() && finalList.last().role == "assistant") {
-                        if (secondText.isNotEmpty()) {
-                            finalList[finalList.lastIndex] = finalList.last().copy(content = secondText.toString())
-                        } else {
-                            // 第二次AI也没返回文本，移除空的assistant占位
-                            finalList.removeAt(finalList.lastIndex)
-                        }
-                        _conversationHistory.value = finalList
-                    }
-                    
+                }
+
+                if (anyToolExecuted) {
                     ScheduleWidgetProvider.updateAllWidgets(getApplication())
-                } else {
-                    // 没有函数调用，如果文本为空则移除占位消息
-                    if (fullText.isEmpty()) {
-                        _conversationHistory.value = _conversationHistory.value.dropLast(1)
-                    }
+                }
+
+                // 达到最大轮次仍在调用工具时补一条说明，避免对话以 tool 消息结尾
+                if (round >= maxRounds && _conversationHistory.value.lastOrNull()?.role == "tool") {
+                    _conversationHistory.value = _conversationHistory.value + ChatMessage(
+                        role = "assistant",
+                        content = "已连续执行多轮操作，为避免误操作先暂停。如果还有未完成的调整，请再告诉我一次。"
+                    )
                 }
 
                 // 对话完成后，保存上下文到文件（异步，不阻塞用户）
